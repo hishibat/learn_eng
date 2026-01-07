@@ -23,21 +23,24 @@ export function useStudy() {
 
       const now = new Date().toISOString();
 
-      const { data, error: fetchError } = await supabase
-        .from('words')
+      // learning_recordsを別クエリで取得（リレーションのorder制約を回避）
+      const { data: records, error: recordsError } = await supabase
+        .from('learning_records')
         .select(`
           *,
-          learning_records!inner (
-            ease_factor,
-            interval_days,
-            repetitions,
-            next_review,
-            last_reviewed
-          )
+          words!inner (*)
         `)
         .eq('user_id', user.id)
-        .lte('learning_records.next_review', now)
-        .order('learning_records(next_review)', { ascending: true });
+        .lte('next_review', now)
+        .order('next_review', { ascending: true });
+
+      if (recordsError) throw recordsError;
+
+      const data = records?.map((record: any) => ({
+        ...record.words,
+        learning_records: [record],
+      }));
+      const fetchError = null;
 
       if (fetchError) throw fetchError;
 

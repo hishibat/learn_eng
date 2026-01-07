@@ -3,6 +3,7 @@ export interface Word {
   user_id: string;
   word: string;
   meaning: string;
+  pronunciation: string | null;
   example: string | null;
   created_at: string;
   updated_at: string;
@@ -59,6 +60,7 @@ export interface WordWithLearningRecord extends Word {
 export interface CreateWordInput {
   word: string;
   meaning: string;
+  pronunciation?: string;
   example?: string;
   tag_ids?: string[];
 }
@@ -67,6 +69,7 @@ export interface CreateWordInput {
 export interface UpdateWordInput {
   word?: string;
   meaning?: string;
+  pronunciation?: string | null;
   example?: string | null;
   tag_ids?: string[];
 }
@@ -75,6 +78,20 @@ export interface UpdateWordInput {
 export interface CreateTagInput {
   name: string;
   color?: string;
+}
+
+// 画像取込用の入力型
+export interface ImportWordInput {
+  word: string;
+  meaning: string;
+  pronunciation?: string;
+}
+
+// 画像取込結果の型
+export interface ImageImportResult {
+  words: ImportWordInput[];
+  success: boolean;
+  error?: string;
 }
 
 // 学習結果の品質評価

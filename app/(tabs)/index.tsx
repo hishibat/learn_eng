@@ -121,6 +121,14 @@ export default function HomeScreen() {
           <FontAwesome name="chevron-right" size={16} color="#9ca3af" />
         </TouchableOpacity>
         <TouchableOpacity
+          style={[styles.actionButton, styles.importButton]}
+          onPress={() => router.push("/import-image" as any)}
+        >
+          <FontAwesome name="camera" size={24} color="#10B981" />
+          <Text style={styles.actionButtonText}>画像から取り込み</Text>
+          <FontAwesome name="chevron-right" size={16} color="#9ca3af" />
+        </TouchableOpacity>
+        <TouchableOpacity
           style={styles.actionButton}
           onPress={() => router.push('/(tabs)/words')}
         >
@@ -272,6 +280,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 1,
+  },
+  importButton: {
+    borderLeftWidth: 3,
+    borderLeftColor: "#10B981",
   },
   actionButtonText: {
     flex: 1,

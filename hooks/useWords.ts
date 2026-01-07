@@ -69,6 +69,7 @@ export function useWords() {
           user_id: user.id,
           word: input.word,
           meaning: input.meaning,
+          pronunciation: input.pronunciation || null,
           example: input.example || null,
         })
         .select()
@@ -119,6 +120,7 @@ export function useWords() {
       if (input.word !== undefined) updateData.word = input.word;
       if (input.meaning !== undefined) updateData.meaning = input.meaning;
       if (input.example !== undefined) updateData.example = input.example;
+      if (input.pronunciation !== undefined) updateData.pronunciation = input.pronunciation;
 
       if (Object.keys(updateData).length > 0) {
         const { error: updateError } = await supabase
