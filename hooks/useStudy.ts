@@ -7,6 +7,7 @@ import { calculateSRS, SimpleReviewOption, simpleToQuality } from '../lib/srs';
 export function useStudy() {
   const { user } = useAuth();
   const [todayWords, setTodayWords] = useState<WordWithLearningRecord[]>([]);
+  const [allWords, setAllWords] = useState<WordWithLearningRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,6 +61,34 @@ export function useStudy() {
       setError(err instanceof Error ? err.message : '学習データの取得に失敗しました');
     } finally {
       setLoading(false);
+    }
+  }, [user]);
+
+  // 全単語を取得（4択クイズの選択肢生成用）
+  const fetchAllWords = useCallback(async () => {
+    if (!user) {
+      setAllWords([]);
+      return;
+    }
+
+    try {
+      const { data: words, error: wordsError } = await supabase
+        .from('words')
+        .select('*')
+        .eq('user_id', user.id);
+
+      if (wordsError) throw wordsError;
+
+      setAllWords((words || []).map((word: any) => ({
+        ...word,
+        ease_factor: null,
+        interval_days: null,
+        repetitions: null,
+        next_review: null,
+        last_reviewed: null,
+      })));
+    } catch (err) {
+      console.error('Error fetching all words:', err);
     }
   }, [user]);
 
@@ -212,9 +241,11 @@ export function useStudy() {
 
   return {
     todayWords,
+    allWords,
     loading,
     error,
     fetchTodayWords,
+    fetchAllWords,
     recordReview,
     saveStudySession,
     getStudyStats,

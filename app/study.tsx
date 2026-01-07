@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -8,7 +8,7 @@ import {
   Dimensions,
   ActivityIndicator,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 
 import { useAuth } from '@/lib/AuthContext';
@@ -18,33 +18,72 @@ import { SimpleReviewOption, formatInterval, calculateSRS, simpleToQuality } fro
 
 const { width } = Dimensions.get('window');
 
+type StudyMode = 'flashcard' | 'quiz';
+
+interface QuizOption {
+  meaning: string;
+  isCorrect: boolean;
+}
+
+// 選択肢を生成する関数
+function generateQuizOptions(
+  currentWord: WordWithLearningRecord,
+  allWords: WordWithLearningRecord[]
+): QuizOption[] {
+  const otherWords = allWords.filter((w) => w.id !== currentWord.id);
+  const shuffled = [...otherWords].sort(() => Math.random() - 0.5);
+  const wrongOptions = shuffled.slice(0, 3).map((w) => ({
+    meaning: w.meaning,
+    isCorrect: false,
+  }));
+  const correctOption: QuizOption = {
+    meaning: currentWord.meaning,
+    isCorrect: true,
+  };
+  return [...wrongOptions, correctOption].sort(() => Math.random() - 0.5);
+}
+
 export default function StudyScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ mode?: string }>();
   const { user } = useAuth();
   const {
     todayWords,
+    allWords,
     loading,
     fetchTodayWords,
+    fetchAllWords,
     recordReview,
     saveStudySession,
   } = useStudy();
 
+  const [studyMode, setStudyMode] = useState<StudyMode>(
+    (params.mode as StudyMode) || 'flashcard'
+  );
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [studiedCount, setStudiedCount] = useState(0);
   const [correctCount, setCorrectCount] = useState(0);
   const [startTime] = useState(Date.now());
   const [sessionComplete, setSessionComplete] = useState(false);
+  const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
+  const [showResult, setShowResult] = useState(false);
 
   const flipAnimation = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (user) {
       fetchTodayWords();
+      fetchAllWords();
     }
   }, [user]);
 
   const currentWord: WordWithLearningRecord | undefined = todayWords[currentIndex];
+
+  const quizOptions = useMemo(() => {
+    if (!currentWord || allWords.length < 4) return [];
+    return generateQuizOptions(currentWord, allWords);
+  }, [currentWord, allWords]);
 
   const flipCard = () => {
     Animated.spring(flipAnimation, {
@@ -78,6 +117,32 @@ export default function StudyScreen() {
         setSessionComplete(true);
       }
     }
+  };
+
+  const handleQuizAnswer = async (optionIndex: number) => {
+    if (showResult || !currentWord) return;
+    setSelectedAnswer(optionIndex);
+    setShowResult(true);
+    const isCorrect = quizOptions[optionIndex]?.isCorrect ?? false;
+    const reviewOption: SimpleReviewOption = isCorrect ? 'good' : 'forgot';
+    setTimeout(async () => {
+      const success = await recordReview(currentWord.id, reviewOption);
+      if (success) {
+        setStudiedCount((prev) => prev + 1);
+        if (isCorrect) {
+          setCorrectCount((prev) => prev + 1);
+        }
+        if (currentIndex < todayWords.length - 1) {
+          setCurrentIndex((prev) => prev + 1);
+          setSelectedAnswer(null);
+          setShowResult(false);
+        } else {
+          const duration = Math.round((Date.now() - startTime) / 1000);
+          await saveStudySession(studiedCount + 1, correctCount + (isCorrect ? 1 : 0), duration);
+          setSessionComplete(true);
+        }
+      }
+    }, 1500);
   };
 
   const getNextInterval = (option: SimpleReviewOption) => {
@@ -136,6 +201,19 @@ export default function StudyScreen() {
     );
   }
 
+  if (studyMode === 'quiz' && allWords.length < 4) {
+    return (
+      <View style={styles.centerContainer}>
+        <FontAwesome name="exclamation-circle" size={64} color="#f59e0b" />
+        <Text style={styles.completeTitle}>単語が不足しています</Text>
+        <Text style={styles.completeText}>4択クイズには最低4つの単語が必要です</Text>
+        <TouchableOpacity style={styles.homeButton} onPress={() => setStudyMode('flashcard')}>
+          <Text style={styles.homeButtonText}>フラッシュカードで学習</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   if (sessionComplete) {
     const duration = Math.round((Date.now() - startTime) / 1000);
     const minutes = Math.floor(duration / 60);
@@ -175,6 +253,25 @@ export default function StudyScreen() {
 
   return (
     <View style={styles.container}>
+      {/* モード切り替え */}
+      <View style={styles.modeSelector}>
+        <TouchableOpacity
+          style={[styles.modeButton, studyMode === 'flashcard' && styles.modeButtonActive]}
+          onPress={() => setStudyMode('flashcard')}
+        >
+          <FontAwesome name="clone" size={16} color={studyMode === 'flashcard' ? '#fff' : '#6366f1'} />
+          <Text style={[styles.modeButtonText, studyMode === 'flashcard' && styles.modeButtonTextActive]}>カード</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.modeButton, studyMode === 'quiz' && styles.modeButtonActive]}
+          onPress={() => setStudyMode('quiz')}
+          disabled={allWords.length < 4}
+        >
+          <FontAwesome name="list-ul" size={16} color={studyMode === 'quiz' ? '#fff' : '#6366f1'} />
+          <Text style={[styles.modeButtonText, studyMode === 'quiz' && styles.modeButtonTextActive]}>4択</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* 進捗 */}
       <View style={styles.progressContainer}>
         <View style={styles.progressBar}>
@@ -190,79 +287,84 @@ export default function StudyScreen() {
         </Text>
       </View>
 
-      {/* フラッシュカード */}
-      <TouchableOpacity
-        style={styles.cardContainer}
-        onPress={flipCard}
-        activeOpacity={0.9}
-      >
-        {/* 表面（英単語） */}
-        <Animated.View
-          style={[
-            styles.card,
-            styles.cardFront,
-            { transform: [{ rotateY: frontInterpolate }] },
-          ]}
-        >
-          <Text style={styles.cardHint}>タップして意味を見る</Text>
-          <Text style={styles.wordText}>{currentWord?.word}</Text>
-          {currentWord?.example && (
-            <Text style={styles.exampleText}>{currentWord.example}</Text>
+      {studyMode === 'flashcard' ? (
+        <>
+          {/* フラッシュカード */}
+          <TouchableOpacity
+            style={styles.cardContainer}
+            onPress={flipCard}
+            activeOpacity={0.9}
+          >
+            <Animated.View
+              style={[styles.card, styles.cardFront, { transform: [{ rotateY: frontInterpolate }] }]}
+            >
+              <Text style={styles.cardHint}>タップして意味を見る</Text>
+              <Text style={styles.wordText}>{currentWord?.word}</Text>
+              {currentWord?.example && <Text style={styles.exampleText}>{currentWord.example}</Text>}
+            </Animated.View>
+            <Animated.View
+              style={[styles.card, styles.cardBack, { transform: [{ rotateY: backInterpolate }] }]}
+            >
+              <Text style={styles.cardHint}>どのくらい覚えていましたか？</Text>
+              <Text style={styles.meaningText}>{currentWord?.meaning}</Text>
+              <Text style={styles.wordSmall}>{currentWord?.word}</Text>
+            </Animated.View>
+          </TouchableOpacity>
+          {isFlipped && (
+            <View style={styles.buttonsContainer}>
+              <TouchableOpacity style={[styles.reviewButton, styles.forgotButton]} onPress={() => handleReview('forgot')}>
+                <FontAwesome name="times" size={20} color="#ef4444" />
+                <Text style={[styles.buttonLabel, { color: '#ef4444' }]}>忘れた</Text>
+                <Text style={styles.intervalText}>{getNextInterval('forgot')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.reviewButton, styles.hardButton]} onPress={() => handleReview('hard')}>
+                <FontAwesome name="meh-o" size={20} color="#f59e0b" />
+                <Text style={[styles.buttonLabel, { color: '#f59e0b' }]}>曖昧</Text>
+                <Text style={styles.intervalText}>{getNextInterval('hard')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.reviewButton, styles.goodButton]} onPress={() => handleReview('good')}>
+                <FontAwesome name="smile-o" size={20} color="#10b981" />
+                <Text style={[styles.buttonLabel, { color: '#10b981' }]}>覚えてた</Text>
+                <Text style={styles.intervalText}>{getNextInterval('good')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.reviewButton, styles.easyButton]} onPress={() => handleReview('easy')}>
+                <FontAwesome name="star" size={20} color="#6366f1" />
+                <Text style={[styles.buttonLabel, { color: '#6366f1' }]}>簡単</Text>
+                <Text style={styles.intervalText}>{getNextInterval('easy')}</Text>
+              </TouchableOpacity>
+            </View>
           )}
-        </Animated.View>
-
-        {/* 裏面（意味） */}
-        <Animated.View
-          style={[
-            styles.card,
-            styles.cardBack,
-            { transform: [{ rotateY: backInterpolate }] },
-          ]}
-        >
-          <Text style={styles.cardHint}>どのくらい覚えていましたか？</Text>
-          <Text style={styles.meaningText}>{currentWord?.meaning}</Text>
-          <Text style={styles.wordSmall}>{currentWord?.word}</Text>
-        </Animated.View>
-      </TouchableOpacity>
-
-      {/* 回答ボタン */}
-      {isFlipped && (
-        <View style={styles.buttonsContainer}>
-          <TouchableOpacity
-            style={[styles.reviewButton, styles.forgotButton]}
-            onPress={() => handleReview('forgot')}
-          >
-            <FontAwesome name="times" size={20} color="#ef4444" />
-            <Text style={[styles.buttonLabel, { color: '#ef4444' }]}>忘れた</Text>
-            <Text style={styles.intervalText}>{getNextInterval('forgot')}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.reviewButton, styles.hardButton]}
-            onPress={() => handleReview('hard')}
-          >
-            <FontAwesome name="meh-o" size={20} color="#f59e0b" />
-            <Text style={[styles.buttonLabel, { color: '#f59e0b' }]}>曖昧</Text>
-            <Text style={styles.intervalText}>{getNextInterval('hard')}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.reviewButton, styles.goodButton]}
-            onPress={() => handleReview('good')}
-          >
-            <FontAwesome name="smile-o" size={20} color="#10b981" />
-            <Text style={[styles.buttonLabel, { color: '#10b981' }]}>覚えてた</Text>
-            <Text style={styles.intervalText}>{getNextInterval('good')}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.reviewButton, styles.easyButton]}
-            onPress={() => handleReview('easy')}
-          >
-            <FontAwesome name="star" size={20} color="#6366f1" />
-            <Text style={[styles.buttonLabel, { color: '#6366f1' }]}>簡単</Text>
-            <Text style={styles.intervalText}>{getNextInterval('easy')}</Text>
-          </TouchableOpacity>
+        </>
+      ) : (
+        <View style={styles.quizContainer}>
+          <View style={styles.quizCard}>
+            <Text style={styles.quizLabel}>この単語の意味は？</Text>
+            <Text style={styles.quizWord}>{currentWord?.word}</Text>
+            {currentWord?.pronunciation && <Text style={styles.quizPronunciation}>{currentWord.pronunciation}</Text>}
+          </View>
+          <View style={styles.optionsContainer}>
+            {quizOptions.map((option, index) => {
+              let optionStyle = [styles.optionButton];
+              let textStyle = [styles.optionText];
+              if (showResult) {
+                if (option.isCorrect) {
+                  optionStyle = [...optionStyle, styles.optionCorrect];
+                  textStyle = [...textStyle, styles.optionTextCorrect];
+                } else if (selectedAnswer === index) {
+                  optionStyle = [...optionStyle, styles.optionWrong];
+                  textStyle = [...textStyle, styles.optionTextWrong];
+                }
+              }
+              return (
+                <TouchableOpacity key={index} style={optionStyle} onPress={() => handleQuizAnswer(index)} disabled={showResult}>
+                  <Text style={styles.optionNumber}>{index + 1}</Text>
+                  <Text style={textStyle}>{option.meaning}</Text>
+                  {showResult && option.isCorrect && <FontAwesome name="check" size={20} color="#10b981" style={styles.optionIcon} />}
+                  {showResult && selectedAnswer === index && !option.isCorrect && <FontAwesome name="times" size={20} color="#ef4444" style={styles.optionIcon} />}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
       )}
     </View>
@@ -449,5 +551,111 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#9ca3af',
     marginTop: 2,
+  },
+  modeSelector: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    gap: 12,
+  },
+  modeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#6366f1',
+    gap: 6,
+  },
+  modeButtonActive: {
+    backgroundColor: '#6366f1',
+  },
+  modeButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6366f1',
+  },
+  modeButtonTextActive: {
+    color: '#fff',
+  },
+  quizContainer: {
+    flex: 1,
+    padding: 20,
+  },
+  quizCard: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 32,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
+    marginBottom: 24,
+  },
+  quizLabel: {
+    fontSize: 14,
+    color: '#9ca3af',
+    marginBottom: 12,
+  },
+  quizWord: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: '#1f2937',
+  },
+  quizPronunciation: {
+    fontSize: 16,
+    color: '#6b7280',
+    marginTop: 8,
+  },
+  optionsContainer: {
+    gap: 12,
+  },
+  optionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+  },
+  optionCorrect: {
+    borderColor: '#10b981',
+    backgroundColor: '#ecfdf5',
+  },
+  optionWrong: {
+    borderColor: '#ef4444',
+    backgroundColor: '#fef2f2',
+  },
+  optionNumber: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f3f4f6',
+    textAlign: 'center',
+    lineHeight: 28,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6b7280',
+    marginRight: 12,
+  },
+  optionText: {
+    flex: 1,
+    fontSize: 16,
+    color: '#1f2937',
+  },
+  optionTextCorrect: {
+    color: '#10b981',
+    fontWeight: '600',
+  },
+  optionTextWrong: {
+    color: '#ef4444',
+  },
+  optionIcon: {
+    marginLeft: 8,
   },
 });
