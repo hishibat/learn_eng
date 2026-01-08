@@ -2,75 +2,73 @@ import { ImageImportResult, ImportWordInput } from '../types/database';
 
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
-const EXTRACTION_PROMPT = `You are an expert at extracting English vocabulary from handwritten or printed study notes and vocabulary lists.
+const EXTRACTION_PROMPT = `You are an expert at extracting English vocabulary from handwritten vocabulary notebooks.
 
-Your task is to INTELLIGENTLY extract English vocabulary entries from the image, understanding the STRUCTURE of the notes.
+## CRITICAL: UNDERSTAND THE NOTEBOOK LAYOUT
 
-## UNDERSTANDING NOTE STRUCTURE
+This is a vocabulary study notebook with a TWO-COLUMN structure:
+- **LEFT COLUMN**: Contains the English words/phrases TO BE LEARNED (these are the vocabulary entries)
+- **RIGHT COLUMN**: Contains the Japanese meaning AND example sentences for each word
 
-Study notes typically have a consistent layout:
-- **Left side**: English word or phrase
-- **Right side**: Japanese meaning, and often example sentences
-- **Example sentences**: Usually longer text that uses the vocabulary word in context
+## ABSOLUTELY CRITICAL RULES
 
-## CRITICAL RULES
+### Rule 1: ONLY the LEFT COLUMN contains vocabulary words to extract
+- The LEFT column has the target vocabulary words (usually 1-3 words each)
+- ONLY these left-column words should become vocabulary entries
+- Count how many distinct vocabulary words are in the left column - this is your target count
 
-1. **Identify vocabulary entries vs example sentences**:
-   - A vocabulary word is typically a single word or short phrase (1-4 words)
-   - Example sentences are longer (5+ words) and demonstrate usage of the vocabulary
-   - Example sentences should be associated with their corresponding vocabulary word, NOT extracted as separate entries
+### Rule 2: The RIGHT COLUMN is SUPPORTING INFORMATION, NOT vocabulary
+- The right column contains: Japanese meanings (日本語の意味) and example sentences (例文)
+- NEVER extract words from example sentences as separate vocabulary entries
+- Example sentences are complete sentences that USE the vocabulary word
+- These sentences should go in the "example" field of the corresponding vocabulary word
 
-2. **Group related content together**:
-   - Each vocabulary word should include its meaning AND any example sentences written nearby
-   - Look for visual grouping (same line, indentation, bullets, numbers)
+### Rule 3: DO NOT split sentences into individual words
+- If you see "The weather is beautiful today" next to a vocabulary word, this is an EXAMPLE SENTENCE
+- DO NOT create entries for "weather", "beautiful", "today" separately
+- Keep the entire sentence as the "example" field
 
-3. **EXCLUDE non-vocabulary content**:
-   - Page numbers (1, 2, 3, Page 1, P.1, etc.)
-   - Dates (2024/1/1, January, Monday, etc.)
-   - Notebook headers/titles (単語帳, Vocabulary, Notes, etc.)
-   - Section markers (Chapter, Unit, Lesson, etc.)
-   - Random marks, doodles, or irrelevant text
+### Rule 4: Match left and right content by visual position
+- Look at what's on the same horizontal line or visually grouped together
+- The Japanese meaning and example sentence on the right belong to the word on the left
 
-4. **Quality over quantity**:
-   - Only extract actual vocabulary entries intended for learning
-   - Skip incomplete or unclear entries
-   - If unsure whether something is a vocabulary word, skip it
+## EXAMPLE OF CORRECT EXTRACTION
+
+If the notebook shows:
+\`\`\`
+LEFT COLUMN          |  RIGHT COLUMN
+---------------------|----------------------------------------
+ambitious            |  野心的な。She is an ambitious lawyer.
+profound             |  深い、深遠な。a profound impact on society
+comprehensive        |  包括的な
+\`\`\`
+
+CORRECT output (3 entries):
+- "ambitious" with meaning "野心的な" and example "She is an ambitious lawyer."
+- "profound" with meaning "深い、深遠な" and example "a profound impact on society"
+- "comprehensive" with meaning "包括的な" and no example
+
+WRONG output would be extracting "ambitious", "lawyer", "profound", "impact", "society", "comprehensive" as 6 separate entries.
+
+## EXCLUDE COMPLETELY
+- Page numbers, dates, headers
+- Individual words from within example sentences
+- Japanese text as vocabulary entries
 
 ## OUTPUT FORMAT
-
-For each vocabulary entry, provide:
-- **word**: The English word/phrase (1-4 words typically)
-- **meaning**: Japanese translation/definition
-- **pronunciation**: IPA notation (optional, only if confident)
-- **example**: Example sentence if one is written for this word (optional)
-
-Respond ONLY with valid JSON:
 {
   "words": [
     {
-      "word": "ambitious",
-      "meaning": "野心的な、大志を抱いた",
-      "pronunciation": "/æmˈbɪʃəs/",
-      "example": "She is an ambitious young lawyer."
-    },
-    {
-      "word": "profound",
-      "meaning": "深い、深遠な",
-      "pronunciation": "/prəˈfaʊnd/",
-      "example": ""
+      "word": "vocabulary word from LEFT column",
+      "meaning": "Japanese meaning from RIGHT column",
+      "pronunciation": "/IPA/ (optional)",
+      "example": "Full example sentence from RIGHT column (optional)"
     }
   ],
   "success": true
 }
 
-Or if there's an error:
-{
-  "words": [],
-  "success": false,
-  "error": "Error description in Japanese"
-}
-
-REMEMBER: Think about what a human would consider a "vocabulary entry" vs "supporting content". Be intelligent about grouping.`;
+REMEMBER: The number of vocabulary entries should roughly match the number of words in the LEFT column, NOT the total number of English words visible in the image.`;
 
 export async function extractWordsFromImage(
   base64Image: string,
