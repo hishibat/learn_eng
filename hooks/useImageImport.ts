@@ -1,9 +1,12 @@
 import { useState } from 'react';
+import { Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { extractWordsFromImage } from '../lib/gemini';
 import { ImportWordInput, ImageImportResult } from '../types/database';
 
 export type ImageSource = 'camera' | 'gallery';
+
+const isWeb = Platform.OS === 'web';
 
 interface UseImageImportReturn {
   selectedImage: string | null;
@@ -25,6 +28,11 @@ export function useImageImport(): UseImageImportReturn {
   const [error, setError] = useState<string | null>(null);
 
   const requestPermissions = async (source: ImageSource): Promise<boolean> => {
+    // Webではパーミッションリクエストは不要
+    if (isWeb) {
+      return true;
+    }
+
     if (source === 'camera') {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
