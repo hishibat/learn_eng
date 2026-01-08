@@ -6,9 +6,9 @@ import { supabase } from './supabase';
 const getRedirectUrl = (): string => {
   if (Platform.OS === 'web') {
     if (typeof window !== 'undefined') {
-      return `${window.location.origin}/`;
+      return `${window.location.origin}/auth/callback`;
     }
-    return '/';
+    return '/auth/callback';
   }
   return 'learneng://auth/callback';
 };
