@@ -85,6 +85,7 @@ export interface ImportWordInput {
   word: string;
   meaning: string;
   pronunciation?: string;
+  example?: string;
 }
 
 // 画像取込結果の型

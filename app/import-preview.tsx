@@ -132,6 +132,7 @@ export default function ImportPreviewScreen() {
           word: word.word,
           meaning: word.meaning,
           pronunciation: word.pronunciation,
+          example: word.example,
           tag_ids: dateTag ? [dateTag.id] : [],
         });
 
@@ -207,6 +208,17 @@ export default function ImportPreviewScreen() {
                       placeholder="(optional)"
                     />
                   </View>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Example</Text>
+                    <TextInput
+                      style={[styles.input, styles.inputMultiline]}
+                      value={word.example || ""}
+                      onChangeText={(v) => updateWord(index, "example", v)}
+                      placeholder="(optional)"
+                      multiline
+                      numberOfLines={2}
+                    />
+                  </View>
                   <TouchableOpacity style={styles.doneButton} onPress={() => toggleEdit(index)}>
                     <Text style={styles.doneButtonText}>Done</Text>
                   </TouchableOpacity>
@@ -219,6 +231,9 @@ export default function ImportPreviewScreen() {
                       <Text style={[styles.pronunciationText, word.skipImport && styles.textSkipped]}>{word.pronunciation}</Text>
                     )}
                     <Text style={[styles.meaningText, word.skipImport && styles.textSkipped]}>{word.meaning}</Text>
+                    {word.example && (
+                      <Text style={[styles.exampleText, word.skipImport && styles.textSkipped]}>例: {word.example}</Text>
+                    )}
                   </View>
                   <View style={styles.wordActions}>
                     <TouchableOpacity style={styles.actionButton} onPress={() => toggleEdit(index)}>
@@ -275,6 +290,7 @@ const styles = StyleSheet.create({
   wordText: { fontSize: 18, fontWeight: "600", color: "#333" },
   pronunciationText: { fontSize: 14, color: "#666", marginTop: 2 },
   meaningText: { fontSize: 14, color: "#666", marginTop: 4 },
+  exampleText: { fontSize: 13, color: "#888", marginTop: 4, fontStyle: "italic" },
   textSkipped: { textDecorationLine: "line-through", color: "#9CA3AF" },
   wordActions: { justifyContent: "center", gap: 8 },
   actionButton: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, backgroundColor: "#f3f4f6" },
@@ -285,6 +301,7 @@ const styles = StyleSheet.create({
   inputGroup: { gap: 4 },
   inputLabel: { fontSize: 12, color: "#666", fontWeight: "500" },
   input: { borderWidth: 1, borderColor: "#ddd", borderRadius: 8, padding: 10, fontSize: 16 },
+  inputMultiline: { minHeight: 60, textAlignVertical: "top" },
   doneButton: { backgroundColor: "#4F46E5", padding: 12, borderRadius: 8, alignItems: "center" },
   doneButtonText: { color: "#fff", fontWeight: "600" },
   footer: { backgroundColor: "#fff", padding: 16, borderTopWidth: 1, borderTopColor: "#e5e5e5" },

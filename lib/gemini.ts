@@ -2,26 +2,62 @@ import { ImageImportResult, ImportWordInput } from '../types/database';
 
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
-const EXTRACTION_PROMPT = `You are an expert at extracting English vocabulary from images.
+const EXTRACTION_PROMPT = `You are an expert at extracting English vocabulary from handwritten or printed study notes and vocabulary lists.
 
-Analyze the provided image and extract all English words/phrases with their Japanese meanings and pronunciations (IPA notation).
+Your task is to INTELLIGENTLY extract English vocabulary entries from the image, understanding the STRUCTURE of the notes.
 
-IMPORTANT RULES:
-1. Extract ALL English words visible in the image
-2. For each word, provide:
-   - word: The English word/phrase exactly as written
-   - meaning: Japanese translation/definition
-   - pronunciation: IPA phonetic notation (optional, leave empty if unsure)
-3. If no English words are found, return an empty array
-4. If you cannot read the image clearly, return an error
+## UNDERSTANDING NOTE STRUCTURE
 
-Respond ONLY with valid JSON in this exact format:
+Study notes typically have a consistent layout:
+- **Left side**: English word or phrase
+- **Right side**: Japanese meaning, and often example sentences
+- **Example sentences**: Usually longer text that uses the vocabulary word in context
+
+## CRITICAL RULES
+
+1. **Identify vocabulary entries vs example sentences**:
+   - A vocabulary word is typically a single word or short phrase (1-4 words)
+   - Example sentences are longer (5+ words) and demonstrate usage of the vocabulary
+   - Example sentences should be associated with their corresponding vocabulary word, NOT extracted as separate entries
+
+2. **Group related content together**:
+   - Each vocabulary word should include its meaning AND any example sentences written nearby
+   - Look for visual grouping (same line, indentation, bullets, numbers)
+
+3. **EXCLUDE non-vocabulary content**:
+   - Page numbers (1, 2, 3, Page 1, P.1, etc.)
+   - Dates (2024/1/1, January, Monday, etc.)
+   - Notebook headers/titles (単語帳, Vocabulary, Notes, etc.)
+   - Section markers (Chapter, Unit, Lesson, etc.)
+   - Random marks, doodles, or irrelevant text
+
+4. **Quality over quantity**:
+   - Only extract actual vocabulary entries intended for learning
+   - Skip incomplete or unclear entries
+   - If unsure whether something is a vocabulary word, skip it
+
+## OUTPUT FORMAT
+
+For each vocabulary entry, provide:
+- **word**: The English word/phrase (1-4 words typically)
+- **meaning**: Japanese translation/definition
+- **pronunciation**: IPA notation (optional, only if confident)
+- **example**: Example sentence if one is written for this word (optional)
+
+Respond ONLY with valid JSON:
 {
   "words": [
     {
-      "word": "example",
-      "meaning": "例、例題",
-      "pronunciation": "/ɪɡˈzæmpəl/"
+      "word": "ambitious",
+      "meaning": "野心的な、大志を抱いた",
+      "pronunciation": "/æmˈbɪʃəs/",
+      "example": "She is an ambitious young lawyer."
+    },
+    {
+      "word": "profound",
+      "meaning": "深い、深遠な",
+      "pronunciation": "/prəˈfaʊnd/",
+      "example": ""
     }
   ],
   "success": true
@@ -32,7 +68,9 @@ Or if there's an error:
   "words": [],
   "success": false,
   "error": "Error description in Japanese"
-}`;
+}
+
+REMEMBER: Think about what a human would consider a "vocabulary entry" vs "supporting content". Be intelligent about grouping.`;
 
 export async function extractWordsFromImage(
   base64Image: string,
@@ -121,6 +159,7 @@ export async function extractWordsFromImage(
         word: w.word.trim(),
         meaning: w.meaning.trim(),
         pronunciation: w.pronunciation?.trim() || undefined,
+        example: w.example?.trim() || undefined,
       }));
 
     return {
