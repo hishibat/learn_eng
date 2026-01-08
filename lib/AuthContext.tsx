@@ -1,6 +1,17 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from './supabase';
+
+const getRedirectUrl = (): string => {
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined') {
+      return `${window.location.origin}/`;
+    }
+    return '/';
+  }
+  return 'learneng://auth/callback';
+};
 
 interface AuthContextType {
   user: User | null;
@@ -38,10 +49,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signInWithGoogle = async () => {
+    const redirectTo = getRedirectUrl();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: 'learneng://auth/callback',
+        redirectTo,
       },
     });
     if (error) {
