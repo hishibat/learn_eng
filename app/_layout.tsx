@@ -81,6 +81,13 @@ function RootLayoutNav() {
             presentation: 'modal',
           }}
         />
+        <Stack.Screen
+          name="statistics"
+          options={{
+            title: '詳細統計',
+            presentation: 'modal',
+          }}
+        />
       </Stack>
     </ThemeProvider>
   );

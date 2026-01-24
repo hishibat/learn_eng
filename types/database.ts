@@ -31,8 +31,22 @@ export interface LearningRecord {
   repetitions: number;
   next_review: string;
   last_reviewed: string | null;
+  total_mistakes: number;
+  consecutive_correct: number;
   created_at: string;
   updated_at: string;
+}
+
+// 学習モード（Phase 2）
+export type StudyMode = 'flashcard' | 'quiz' | 'spelling';
+
+// 間違い記録（Phase 2）
+export interface MistakeRecord {
+  id: string;
+  user_id: string;
+  word_id: string;
+  study_mode: StudyMode;
+  created_at: string;
 }
 
 export interface StudySession {
@@ -54,6 +68,14 @@ export interface WordWithLearningRecord extends Word {
   repetitions: number | null;
   next_review: string | null;
   last_reviewed: string | null;
+  total_mistakes: number | null;
+  consecutive_correct: number | null;
+}
+
+// 間違い回数付き単語（Phase 2）
+export interface WordWithMistakes extends Word {
+  mistake_count: number;
+  last_mistake_at: string | null;
 }
 
 // 単語作成用の入力型
@@ -120,4 +142,44 @@ export interface StudyStats {
   newWords: number;
   todayStudied: number;
   streak: number;
+}
+
+// =============================================
+// Phase 2: 統計関連の型
+// =============================================
+
+// 日別学習統計
+export interface DailyStats {
+  date: string;
+  studied_count: number;
+  correct_count: number;
+  accuracy: number;
+}
+
+// 難しい単語（間違いが多い）
+export interface WordDifficulty {
+  word_id: string;
+  word: string;
+  meaning: string;
+  mistake_count: number;
+  accuracy: number;
+}
+
+// タグ別習得率
+export interface TagMastery {
+  tag_id: string;
+  tag_name: string;
+  tag_color: string;
+  total_words: number;
+  mastered_words: number;
+  mastery_rate: number;
+}
+
+// 詳細統計
+export interface DetailedStats extends StudyStats {
+  dailyStats: DailyStats[];
+  difficultWords: WordDifficulty[];
+  tagMastery: TagMastery[];
+  totalStudyTimeMinutes: number;
+  averageAccuracy: number;
 }

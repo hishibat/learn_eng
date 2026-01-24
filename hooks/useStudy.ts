@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
-import { WordWithLearningRecord, LearningRecord, StudyStats } from '../types/database';
+import { WordWithLearningRecord, LearningRecord, StudyStats, StudyMode } from '../types/database';
 import { calculateSRS, SimpleReviewOption, simpleToQuality } from '../lib/srs';
 
 export function useStudy() {
@@ -52,6 +52,8 @@ export function useStudy() {
         repetitions: item.learning_records?.[0]?.repetitions ?? null,
         next_review: item.learning_records?.[0]?.next_review ?? null,
         last_reviewed: item.learning_records?.[0]?.last_reviewed ?? null,
+        total_mistakes: item.learning_records?.[0]?.total_mistakes ?? 0,
+        consecutive_correct: item.learning_records?.[0]?.consecutive_correct ?? 0,
         learning_records: undefined,
       }));
 
@@ -86,6 +88,8 @@ export function useStudy() {
         repetitions: null,
         next_review: null,
         last_reviewed: null,
+        total_mistakes: 0,
+        consecutive_correct: 0,
       })));
     } catch (err) {
       console.error('Error fetching all words:', err);
@@ -95,7 +99,8 @@ export function useStudy() {
   // 学習結果を記録
   const recordReview = async (
     wordId: string,
-    reviewOption: SimpleReviewOption
+    reviewOption: SimpleReviewOption,
+    studyMode: StudyMode = 'flashcard'
   ): Promise<boolean> => {
     if (!user) return false;
 
@@ -121,6 +126,15 @@ export function useStudy() {
         currentRecord.repetitions
       );
 
+      // 間違い追跡用の更新値を計算
+      const isCorrect = reviewOption !== 'forgot';
+      const newTotalMistakes = isCorrect
+        ? (currentRecord.total_mistakes || 0)
+        : (currentRecord.total_mistakes || 0) + 1;
+      const newConsecutiveCorrect = isCorrect
+        ? (currentRecord.consecutive_correct || 0) + 1
+        : 0;
+
       // 学習記録を更新
       const { error: updateError } = await supabase
         .from('learning_records')
@@ -130,10 +144,17 @@ export function useStudy() {
           repetitions: result.repetitions,
           next_review: result.nextReview.toISOString(),
           last_reviewed: new Date().toISOString(),
+          total_mistakes: newTotalMistakes,
+          consecutive_correct: newConsecutiveCorrect,
         })
         .eq('id', currentRecord.id);
 
       if (updateError) throw updateError;
+
+      // 間違えた場合はmistake_recordsにも記録
+      if (!isCorrect) {
+        await recordMistake(wordId, studyMode);
+      }
 
       return true;
     } catch (err) {
@@ -142,6 +163,65 @@ export function useStudy() {
       return false;
     }
   };
+
+  // 間違いを記録
+  const recordMistake = async (
+    wordId: string,
+    studyMode: StudyMode
+  ): Promise<boolean> => {
+    if (!user) return false;
+
+    try {
+      const { error: insertError } = await supabase
+        .from('mistake_records')
+        .insert({
+          user_id: user.id,
+          word_id: wordId,
+          study_mode: studyMode,
+        });
+
+      if (insertError) throw insertError;
+      return true;
+    } catch (err) {
+      console.error('Error recording mistake:', err);
+      return false;
+    }
+  };
+
+  // 間違いの多い単語を優先的に取得
+  const fetchPriorityWords = useCallback(async (limit: number = 10): Promise<WordWithLearningRecord[]> => {
+    if (!user) return [];
+
+    try {
+      // learning_recordsからtotal_mistakesでソートして取得
+      const { data: records, error: recordsError } = await supabase
+        .from('learning_records')
+        .select(`
+          *,
+          words!inner (*)
+        `)
+        .eq('user_id', user.id)
+        .gt('total_mistakes', 0)
+        .order('total_mistakes', { ascending: false })
+        .limit(limit);
+
+      if (recordsError) throw recordsError;
+
+      return (records || []).map((record: any) => ({
+        ...record.words,
+        ease_factor: record.ease_factor,
+        interval_days: record.interval_days,
+        repetitions: record.repetitions,
+        next_review: record.next_review,
+        last_reviewed: record.last_reviewed,
+        total_mistakes: record.total_mistakes || 0,
+        consecutive_correct: record.consecutive_correct || 0,
+      }));
+    } catch (err) {
+      console.error('Error fetching priority words:', err);
+      return [];
+    }
+  }, [user]);
 
   // 学習セッションを保存
   const saveStudySession = async (
@@ -247,6 +327,8 @@ export function useStudy() {
     fetchTodayWords,
     fetchAllWords,
     recordReview,
+    recordMistake,
+    fetchPriorityWords,
     saveStudySession,
     getStudyStats,
   };

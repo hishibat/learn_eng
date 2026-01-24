@@ -7,18 +7,19 @@ import {
   Animated,
   Dimensions,
   ActivityIndicator,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 
 import { useAuth } from '@/lib/AuthContext';
 import { useStudy } from '@/hooks/useStudy';
-import { WordWithLearningRecord } from '@/types/database';
+import { WordWithLearningRecord, StudyMode } from '@/types/database';
 import { SimpleReviewOption, formatInterval, calculateSRS, simpleToQuality } from '@/lib/srs';
 
 const { width } = Dimensions.get('window');
-
-type StudyMode = 'flashcard' | 'quiz';
 
 interface QuizOption {
   meaning: string;
@@ -41,6 +42,11 @@ function generateQuizOptions(
     isCorrect: true,
   };
   return [...wrongOptions, correctOption].sort(() => Math.random() - 0.5);
+}
+
+// スペル正規化（大文字小文字、空白を無視）
+function normalizeSpelling(text: string): string {
+  return text.toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
 export default function StudyScreen() {
@@ -69,6 +75,15 @@ export default function StudyScreen() {
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [showResult, setShowResult] = useState(false);
 
+  // スペルモード用の状態
+  const [spellingInput, setSpellingInput] = useState('');
+  const [spellingResult, setSpellingResult] = useState<'correct' | 'incorrect' | null>(null);
+
+  // リトライキュー（間違えた単語を再出題）
+  const [retryQueue, setRetryQueue] = useState<WordWithLearningRecord[]>([]);
+  const [isRetryPhase, setIsRetryPhase] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+
   const flipAnimation = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -78,7 +93,13 @@ export default function StudyScreen() {
     }
   }, [user]);
 
-  const currentWord: WordWithLearningRecord | undefined = todayWords[currentIndex];
+  // 現在出題中の単語
+  const currentWord: WordWithLearningRecord | undefined = isRetryPhase
+    ? retryQueue[currentIndex]
+    : todayWords[currentIndex];
+
+  // 現在のリスト（通常フェーズかリトライフェーズか）
+  const currentList = isRetryPhase ? retryQueue : todayWords;
 
   const quizOptions = useMemo(() => {
     if (!currentWord || allWords.length < 4) return [];
@@ -95,27 +116,53 @@ export default function StudyScreen() {
     setIsFlipped(!isFlipped);
   };
 
+  // 次の単語へ進む、またはリトライフェーズへ移行
+  const moveToNext = async (wasCorrect: boolean, word: WordWithLearningRecord) => {
+    // 間違えた場合はリトライキューに追加
+    if (!wasCorrect && !isRetryPhase) {
+      setRetryQueue((prev) => [...prev, word]);
+    }
+
+    // リトライフェーズで間違えた場合は、キューの最後に再追加
+    if (!wasCorrect && isRetryPhase) {
+      setRetryQueue((prev) => [...prev, word]);
+      setRetryCount((prev) => prev + 1);
+    }
+
+    // 次のカードへ
+    if (currentIndex < currentList.length - 1) {
+      flipAnimation.setValue(0);
+      setIsFlipped(false);
+      setCurrentIndex((prev) => prev + 1);
+      setSpellingInput('');
+      setSpellingResult(null);
+    } else if (!isRetryPhase && retryQueue.length > 0) {
+      // 通常フェーズ終了、リトライフェーズへ
+      setIsRetryPhase(true);
+      setCurrentIndex(0);
+      flipAnimation.setValue(0);
+      setIsFlipped(false);
+      setSpellingInput('');
+      setSpellingResult(null);
+    } else {
+      // セッション完了
+      const duration = Math.round((Date.now() - startTime) / 1000);
+      await saveStudySession(studiedCount + 1, correctCount + (wasCorrect ? 1 : 0), duration);
+      setSessionComplete(true);
+    }
+  };
+
   const handleReview = async (option: SimpleReviewOption) => {
     if (!currentWord) return;
 
-    const success = await recordReview(currentWord.id, option);
+    const success = await recordReview(currentWord.id, option, studyMode);
     if (success) {
+      const isCorrect = option !== 'forgot';
       setStudiedCount((prev) => prev + 1);
-      if (option !== 'forgot') {
+      if (isCorrect) {
         setCorrectCount((prev) => prev + 1);
       }
-
-      // 次のカードへ
-      if (currentIndex < todayWords.length - 1) {
-        flipAnimation.setValue(0);
-        setIsFlipped(false);
-        setCurrentIndex((prev) => prev + 1);
-      } else {
-        // セッション完了
-        const duration = Math.round((Date.now() - startTime) / 1000);
-        await saveStudySession(studiedCount + 1, correctCount + (option !== 'forgot' ? 1 : 0), duration);
-        setSessionComplete(true);
-      }
+      await moveToNext(isCorrect, currentWord);
     }
   };
 
@@ -125,24 +172,42 @@ export default function StudyScreen() {
     setShowResult(true);
     const isCorrect = quizOptions[optionIndex]?.isCorrect ?? false;
     const reviewOption: SimpleReviewOption = isCorrect ? 'good' : 'forgot';
+
     setTimeout(async () => {
-      const success = await recordReview(currentWord.id, reviewOption);
+      const success = await recordReview(currentWord.id, reviewOption, studyMode);
       if (success) {
         setStudiedCount((prev) => prev + 1);
         if (isCorrect) {
           setCorrectCount((prev) => prev + 1);
         }
-        if (currentIndex < todayWords.length - 1) {
-          setCurrentIndex((prev) => prev + 1);
-          setSelectedAnswer(null);
-          setShowResult(false);
-        } else {
-          const duration = Math.round((Date.now() - startTime) / 1000);
-          await saveStudySession(studiedCount + 1, correctCount + (isCorrect ? 1 : 0), duration);
-          setSessionComplete(true);
-        }
+        setSelectedAnswer(null);
+        setShowResult(false);
+        await moveToNext(isCorrect, currentWord);
       }
     }, 1500);
+  };
+
+  const handleSpellingSubmit = async () => {
+    if (!currentWord || spellingResult) return;
+
+    const isCorrect = normalizeSpelling(spellingInput) === normalizeSpelling(currentWord.word);
+    setSpellingResult(isCorrect ? 'correct' : 'incorrect');
+
+    const reviewOption: SimpleReviewOption = isCorrect ? 'good' : 'forgot';
+    const success = await recordReview(currentWord.id, reviewOption, studyMode);
+
+    if (success) {
+      setStudiedCount((prev) => prev + 1);
+      if (isCorrect) {
+        setCorrectCount((prev) => prev + 1);
+      }
+
+      setTimeout(async () => {
+        setSpellingResult(null);
+        setSpellingInput('');
+        await moveToNext(isCorrect, currentWord);
+      }, 1500);
+    }
   };
 
   const getNextInterval = (option: SimpleReviewOption) => {
@@ -230,7 +295,7 @@ export default function StudyScreen() {
           </View>
           <View style={styles.resultItem}>
             <Text style={styles.resultValue}>
-              {Math.round((correctCount / studiedCount) * 100)}%
+              {studiedCount > 0 ? Math.round((correctCount / studiedCount) * 100) : 0}%
             </Text>
             <Text style={styles.resultLabel}>正答率</Text>
           </View>
@@ -241,6 +306,14 @@ export default function StudyScreen() {
             <Text style={styles.resultLabel}>学習時間</Text>
           </View>
         </View>
+        {retryCount > 0 && (
+          <View style={styles.retryStats}>
+            <FontAwesome name="refresh" size={16} color="#f59e0b" />
+            <Text style={styles.retryStatsText}>
+              リトライ: {retryCount}回
+            </Text>
+          </View>
+        )}
         <TouchableOpacity
           style={styles.homeButton}
           onPress={() => router.back()}
@@ -252,7 +325,10 @@ export default function StudyScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
       {/* モード切り替え */}
       <View style={styles.modeSelector}>
         <TouchableOpacity
@@ -270,7 +346,24 @@ export default function StudyScreen() {
           <FontAwesome name="list-ul" size={16} color={studyMode === 'quiz' ? '#fff' : '#6366f1'} />
           <Text style={[styles.modeButtonText, studyMode === 'quiz' && styles.modeButtonTextActive]}>4択</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.modeButton, studyMode === 'spelling' && styles.modeButtonActive]}
+          onPress={() => setStudyMode('spelling')}
+        >
+          <FontAwesome name="keyboard-o" size={16} color={studyMode === 'spelling' ? '#fff' : '#6366f1'} />
+          <Text style={[styles.modeButtonText, studyMode === 'spelling' && styles.modeButtonTextActive]}>スペル</Text>
+        </TouchableOpacity>
       </View>
+
+      {/* リトライフェーズ表示 */}
+      {isRetryPhase && (
+        <View style={styles.retryBanner}>
+          <FontAwesome name="refresh" size={14} color="#f59e0b" />
+          <Text style={styles.retryBannerText}>
+            リトライ中 - 間違えた単語を復習
+          </Text>
+        </View>
+      )}
 
       {/* 進捗 */}
       <View style={styles.progressContainer}>
@@ -278,12 +371,13 @@ export default function StudyScreen() {
           <View
             style={[
               styles.progressFill,
-              { width: `${((currentIndex + 1) / todayWords.length) * 100}%` },
+              { width: `${((currentIndex + 1) / currentList.length) * 100}%` },
             ]}
           />
         </View>
         <Text style={styles.progressText}>
-          {currentIndex + 1} / {todayWords.length}
+          {currentIndex + 1} / {currentList.length}
+          {isRetryPhase && ' (リトライ)'}
         </Text>
       </View>
 
@@ -335,7 +429,7 @@ export default function StudyScreen() {
             </View>
           )}
         </>
-      ) : (
+      ) : studyMode === 'quiz' ? (
         <View style={styles.quizContainer}>
           <View style={styles.quizCard}>
             <Text style={styles.quizLabel}>この単語の意味は？</Text>
@@ -366,8 +460,68 @@ export default function StudyScreen() {
             })}
           </View>
         </View>
+      ) : (
+        // スペルモード
+        <View style={styles.spellingContainer}>
+          <View style={styles.spellingCard}>
+            <Text style={styles.spellingLabel}>この意味の英単語を入力</Text>
+            <Text style={styles.spellingMeaning}>{currentWord?.meaning}</Text>
+            {currentWord?.pronunciation && (
+              <Text style={styles.spellingPronunciation}>{currentWord.pronunciation}</Text>
+            )}
+          </View>
+
+          <View style={styles.spellingInputContainer}>
+            <TextInput
+              style={[
+                styles.spellingInput,
+                spellingResult === 'correct' && styles.spellingInputCorrect,
+                spellingResult === 'incorrect' && styles.spellingInputIncorrect,
+              ]}
+              value={spellingInput}
+              onChangeText={setSpellingInput}
+              placeholder="英単語を入力..."
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!spellingResult}
+              onSubmitEditing={handleSpellingSubmit}
+              returnKeyType="done"
+            />
+            {spellingResult && (
+              <View style={styles.spellingResultContainer}>
+                {spellingResult === 'correct' ? (
+                  <View style={styles.spellingResultCorrect}>
+                    <FontAwesome name="check-circle" size={24} color="#10b981" />
+                    <Text style={styles.spellingResultText}>正解!</Text>
+                  </View>
+                ) : (
+                  <View style={styles.spellingResultIncorrect}>
+                    <FontAwesome name="times-circle" size={24} color="#ef4444" />
+                    <Text style={styles.spellingResultText}>不正解</Text>
+                    <Text style={styles.spellingCorrectAnswer}>
+                      正解: {currentWord?.word}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+
+          {!spellingResult && (
+            <TouchableOpacity
+              style={[
+                styles.spellingSubmitButton,
+                !spellingInput.trim() && styles.spellingSubmitButtonDisabled,
+              ]}
+              onPress={handleSpellingSubmit}
+              disabled={!spellingInput.trim()}
+            >
+              <Text style={styles.spellingSubmitButtonText}>回答する</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       )}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -416,6 +570,16 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     marginTop: 4,
   },
+  retryStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    gap: 8,
+  },
+  retryStatsText: {
+    fontSize: 14,
+    color: '#f59e0b',
+  },
   homeButton: {
     backgroundColor: '#6366f1',
     paddingHorizontal: 32,
@@ -427,6 +591,20 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  retryBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fef3c7',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  retryBannerText: {
+    fontSize: 14,
+    color: '#92400e',
+    fontWeight: '500',
   },
   progressContainer: {
     padding: 20,
@@ -562,7 +740,7 @@ const styles = StyleSheet.create({
   modeButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 20,
     borderWidth: 1,
@@ -657,5 +835,95 @@ const styles = StyleSheet.create({
   },
   optionIcon: {
     marginLeft: 8,
+  },
+  // スペルモードのスタイル
+  spellingContainer: {
+    flex: 1,
+    padding: 20,
+  },
+  spellingCard: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 32,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
+    marginBottom: 24,
+  },
+  spellingLabel: {
+    fontSize: 14,
+    color: '#9ca3af',
+    marginBottom: 12,
+  },
+  spellingMeaning: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#1f2937',
+    textAlign: 'center',
+  },
+  spellingPronunciation: {
+    fontSize: 16,
+    color: '#6b7280',
+    marginTop: 8,
+  },
+  spellingInputContainer: {
+    marginBottom: 16,
+  },
+  spellingInput: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 18,
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+    textAlign: 'center',
+  },
+  spellingInputCorrect: {
+    borderColor: '#10b981',
+    backgroundColor: '#ecfdf5',
+  },
+  spellingInputIncorrect: {
+    borderColor: '#ef4444',
+    backgroundColor: '#fef2f2',
+  },
+  spellingResultContainer: {
+    marginTop: 16,
+    alignItems: 'center',
+  },
+  spellingResultCorrect: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  spellingResultIncorrect: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  spellingResultText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1f2937',
+  },
+  spellingCorrectAnswer: {
+    fontSize: 16,
+    color: '#ef4444',
+    marginTop: 8,
+  },
+  spellingSubmitButton: {
+    backgroundColor: '#6366f1',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+  },
+  spellingSubmitButtonDisabled: {
+    backgroundColor: '#c7d2fe',
+  },
+  spellingSubmitButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

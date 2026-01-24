@@ -28,8 +28,12 @@ export default function ImportPreviewScreen() {
   const [editableWords, setEditableWords] = useState<EditableWord[]>([]);
   const [saving, setSaving] = useState(false);
   const [savedCount, setSavedCount] = useState(0);
+  const [importCompleted, setImportCompleted] = useState(false);
 
   useEffect(() => {
+    // Skip if import already completed to prevent re-populating the list
+    if (importCompleted) return;
+
     if (params.words) {
       try {
         const parsed: ImportWordInput[] = JSON.parse(params.words);
@@ -48,7 +52,7 @@ export default function ImportPreviewScreen() {
         router.back();
       }
     }
-  }, [params.words, existingWords]);
+  }, [params.words, existingWords, importCompleted]);
 
   const toggleEdit = (index: number) => {
     setEditableWords((prev) => {
@@ -141,6 +145,10 @@ export default function ImportPreviewScreen() {
           setSavedCount(successCount);
         }
       }
+
+      // Clear the word list after successful import
+      setImportCompleted(true);
+      setEditableWords([]);
 
       Alert.alert("Done", successCount + " words registered", [
         { text: "OK", onPress: () => router.replace("/(tabs)/words") },

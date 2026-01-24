@@ -143,6 +143,16 @@ export default function ProfileScreen() {
 
       {/* アクション */}
       <View style={styles.actionsSection}>
+        <TouchableOpacity
+          style={styles.actionItem}
+          onPress={() => router.push('/statistics')}
+        >
+          <FontAwesome name="bar-chart" size={20} color="#6366f1" />
+          <Text style={[styles.actionText, { color: '#6366f1' }]}>
+            詳細統計を見る
+          </Text>
+          <FontAwesome name="chevron-right" size={16} color="#9ca3af" style={styles.actionChevron} />
+        </TouchableOpacity>
         <TouchableOpacity style={styles.actionItem} onPress={handleSignOut}>
           <FontAwesome name="sign-out" size={20} color="#ef4444" />
           <Text style={[styles.actionText, { color: '#ef4444' }]}>
@@ -300,6 +310,10 @@ const styles = StyleSheet.create({
   actionText: {
     fontSize: 16,
     fontWeight: '500',
+    flex: 1,
+  },
+  actionChevron: {
+    marginLeft: 'auto',
   },
   versionContainer: {
     alignItems: 'center',
