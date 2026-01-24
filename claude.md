@@ -5,155 +5,188 @@
 英語の単語やイディオムを効果的に暗記するためのiPhone対応アプリ。
 Duolingoを参考にしたUI/UXで、間隔反復学習（SRS）を活用した効率的な学習体験を提供する。
 
-## 要件定義
+## 現在のステータス
 
-### ターゲットユーザー
-- ビジネス英語を学びたい社会人
-- 自分で選んだ単語を効率的に暗記したい人
+### Phase 1（MVP）: 完了
 
-### 機能要件
+| 機能 | 状態 |
+|------|------|
+| Google OAuth認証 | 完了 |
+| 単語登録・編集・削除 | 完了 |
+| タグ管理 | 完了 |
+| フラッシュカード学習 | 完了 |
+| 4択クイズ | 完了 |
+| SRS（間隔反復学習） | 完了 |
+| 画像から単語取り込み（Gemini API） | 完了 |
+| 統計画面 | 完了 |
 
-#### Phase 1（MVP）
-1. **ユーザー認証**
-   - Googleアカウントでログイン
-   - 複数端末でのデータ同期
+### Phase 2: 計画中
 
-2. **単語登録・管理**
-   - 英単語（必須）
-   - 日本語の意味（必須）
-   - 例文（任意）
-   - カテゴリ/タグ（任意）
-   - 全て手入力（AI自動補完なし）
+- [ ] スペル入力形式
+- [ ] 詳細な統計・分析
 
-3. **学習機能**
-   - フラッシュカード形式
-   - SRS（間隔反復学習）アルゴリズム
-   - 「今日の学習」機能
+## デプロイ環境
 
-4. **進捗表示**
-   - 基本的な学習進捗の可視化
+### Supabase（本番稼働中）
 
-#### Phase 2（MVP後）
-- 4択クイズ形式
-- スペル入力形式
-- 詳細な統計・分析
+- **Project ID**: `flqthyltwkqusjkmwcee`
+- **URL**: `https://flqthyltwkqusjkmwcee.supabase.co`
+- **認証**: Google OAuth
+- **RLS**: 全テーブルで有効
 
-### 非機能要件
-- オフライン対応: 不要（オンライン環境前提）
-- 新規単語登録: 1日5〜15個目安（制限なし）
+### Vercel（設定済み）
+
+- **ビルドコマンド**: `npx expo export -p web`
+- **出力ディレクトリ**: `dist`
+- **リライト**: SPA対応（全ルート → `/index.html`）
+
+### 環境変数
+
+```bash
+# .env（ローカル開発）
+EXPO_PUBLIC_SUPABASE_URL=https://flqthyltwkqusjkmwcee.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJ...（設定済み）
+
+# Vercel環境変数（要設定）
+# 同じ値をVercelダッシュボードで設定
+```
+
+### OAuth設定
+
+| プラットフォーム | リダイレクトURL |
+|------------------|-----------------|
+| Web | `https://{vercel-domain}/auth/callback` |
+| Native | `learneng://auth/callback` |
 
 ## 技術スタック
 
 | レイヤー | 技術 | バージョン |
 |----------|------|------------|
-| フロントエンド | Expo (React Native) | 最新安定版 |
+| フロントエンド | Expo (React Native) | ~54.0.31 |
 | バックエンド/DB | Supabase (PostgreSQL) | - |
 | 認証 | Supabase Auth (Google OAuth) | - |
-| 言語 | TypeScript | 最新安定版 |
+| AI画像解析 | Google Gemini API | - |
+| 言語 | TypeScript | ~5.9.2 |
+| ホスティング | Vercel | - |
 
-### 選定理由
-
-**Expo (React Native)**
-- iPhone対応が容易
-- 開発経験がなくても取り組みやすい
-- ストア公開が簡単
-
-**Supabase**
-- Google認証が組み込みで簡単
-- PostgreSQL（SQL対応、堅牢）
-- 無料枠: 5万MAU、500MB DB
-- Row Level Security（セキュリティ）
-
-## データベース設計
-
-### テーブル構成
-
-```sql
--- ユーザー（Supabase Authで管理）
-
--- 単語テーブル
-words (
-  id: uuid PRIMARY KEY,
-  user_id: uuid REFERENCES auth.users,
-  word: text NOT NULL,          -- 英単語
-  meaning: text NOT NULL,       -- 日本語の意味
-  example: text,                -- 例文
-  created_at: timestamp,
-  updated_at: timestamp
-)
-
--- タグテーブル
-tags (
-  id: uuid PRIMARY KEY,
-  user_id: uuid REFERENCES auth.users,
-  name: text NOT NULL,          -- タグ名
-  created_at: timestamp
-)
-
--- 単語-タグ中間テーブル
-word_tags (
-  word_id: uuid REFERENCES words,
-  tag_id: uuid REFERENCES tags,
-  PRIMARY KEY (word_id, tag_id)
-)
-
--- 学習記録テーブル（SRS用）
-learning_records (
-  id: uuid PRIMARY KEY,
-  user_id: uuid REFERENCES auth.users,
-  word_id: uuid REFERENCES words,
-  ease_factor: float DEFAULT 2.5,    -- 難易度係数
-  interval: int DEFAULT 0,            -- 次回までの間隔（日）
-  repetitions: int DEFAULT 0,         -- 復習回数
-  next_review: timestamp,             -- 次回復習日
-  last_reviewed: timestamp,
-  created_at: timestamp,
-  updated_at: timestamp
-)
-
--- 学習セッション記録
-study_sessions (
-  id: uuid PRIMARY KEY,
-  user_id: uuid REFERENCES auth.users,
-  studied_count: int,           -- 学習した単語数
-  correct_count: int,           -- 正解数
-  duration_seconds: int,        -- 学習時間
-  created_at: timestamp
-)
-```
-
-## ディレクトリ構成（予定）
+## ディレクトリ構成
 
 ```
 learn_eng/
 ├── app/                    # Expo Router ページ
-│   ├── (auth)/            # 認証関連画面
-│   ├── (tabs)/            # メインタブ画面
-│   └── _layout.tsx
-├── components/            # 再利用可能なコンポーネント
-│   ├── ui/               # 基本UIコンポーネント
-│   └── features/         # 機能別コンポーネント
-├── lib/                   # ユーティリティ・設定
-│   ├── supabase.ts       # Supabase クライアント
-│   └── srs.ts            # SRSアルゴリズム
-├── hooks/                 # カスタムフック
-├── types/                 # TypeScript型定義
-├── constants/             # 定数
-└── assets/               # 画像・フォント
+│   ├── (tabs)/             # メインタブ画面
+│   │   ├── index.tsx       # ホーム
+│   │   ├── words.tsx       # 単語一覧
+│   │   └── profile.tsx     # プロフィール
+│   ├── auth/
+│   │   └── callback.tsx    # OAuth コールバック
+│   ├── add-word.tsx        # 単語追加
+│   ├── edit-word.tsx       # 単語編集
+│   ├── study.tsx           # 学習画面
+│   ├── statistics.tsx      # 統計画面
+│   ├── import-image.tsx    # 画像取り込み
+│   ├── import-preview.tsx  # 取り込みプレビュー
+│   ├── settings.tsx        # 設定（Gemini APIキー）
+│   └── login.tsx           # ログイン
+├── hooks/                  # カスタムフック
+│   ├── useWords.ts         # 単語CRUD
+│   ├── useStudy.ts         # 学習ロジック
+│   ├── useTags.ts          # タグ管理
+│   ├── useSettings.ts      # 設定管理
+│   └── useImageImport.ts   # 画像取り込み
+├── lib/                    # ユーティリティ
+│   ├── supabase.ts         # Supabase クライアント
+│   ├── AuthContext.tsx     # 認証コンテキスト
+│   ├── srs.ts              # SM-2アルゴリズム
+│   └── gemini.ts           # Gemini API
+├── types/                  # TypeScript型定義
+│   └── database.ts
+├── supabase/               # DBスキーマ
+│   └── schema.sql
+└── constants/              # 定数
+    └── Colors.ts
 ```
 
-## SRSアルゴリズム
+## データベース設計
 
-SM-2アルゴリズムをベースに実装:
+### テーブル構成（7テーブル + 2ビュー）
 
-1. 学習時に「覚えていた」「曖昧」「忘れた」を選択
-2. 回答に応じてease_factorとintervalを更新
-3. next_reviewを計算して保存
-4. 「今日の学習」ではnext_review <= 今日の単語を出題
+```sql
+-- 単語テーブル
+words (
+  id, user_id, word, meaning, pronunciation, example,
+  created_at, updated_at
+)
+
+-- タグテーブル
+tags (
+  id, user_id, name, color, created_at
+)
+
+-- 単語-タグ中間テーブル
+word_tags (word_id, tag_id)
+
+-- 学習記録テーブル（SRS用）
+learning_records (
+  id, user_id, word_id,
+  ease_factor, interval_days, repetitions,
+  next_review, last_reviewed,
+  total_mistakes, consecutive_correct,  -- Phase 2用
+  created_at, updated_at
+)
+
+-- 学習セッション記録
+study_sessions (
+  id, user_id, studied_count, correct_count,
+  duration_seconds, created_at
+)
+
+-- 間違い記録（Phase 2用）
+mistake_records (
+  id, user_id, word_id, study_mode, created_at
+)
+
+-- ビュー
+words_due_for_review   -- 復習対象の単語
+words_with_tags        -- 単語とタグを結合
+```
+
+### セキュリティ
+
+- 全テーブルでRLS有効
+- ユーザーは自分のデータのみアクセス可能
+- CUD操作は `auth.uid() = user_id` で保護
+
+## SRSアルゴリズム（SM-2）
+
+1. 学習時に「忘れた」「曖昧」「覚えてた」「簡単」を選択
+2. 回答に応じて `ease_factor` と `interval_days` を更新
+3. `next_review` を計算して保存
+4. 「今日の学習」では `next_review <= 今日` の単語を出題
+
+## 開発コマンド
+
+```bash
+# 開発サーバー起動
+npx expo start
+
+# キャッシュクリアして起動
+npx expo start --clear
+
+# Web ブラウザ
+npx expo start --web
+
+# 本番ビルド（Web）
+npx expo export -p web
+
+# Lint
+npm run lint
+```
 
 ## 開発ルール
 
 - TypeScriptを使用（strict mode）
 - コンポーネントは関数コンポーネント + Hooks
 - スタイリングはReact Native StyleSheet
-- 状態管理は React Context + useReducer（必要に応じて）
+- 状態管理は React Context + useReducer
+- カスタムスキーム: `learneng://`
