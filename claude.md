@@ -27,6 +27,17 @@ Duolingoを参考にしたUI/UXで、間隔反復学習（SRS）を活用した�
 
 ## デプロイ環境
 
+**重要: Vercel + GitHub連携は設定済み。pushすると自動デプロイされる。**
+
+### Vercel（本番稼働中・GitHub連携済み）
+
+- **プロジェクト名**: `learn_eng`
+- **GitHub連携**: 済（pushで自動デプロイ）
+- **ビルドコマンド**: `npx expo export -p web`
+- **出力ディレクトリ**: `dist`
+- **リライト**: SPA対応（全ルート → `/index.html`）
+- **環境変数**: Vercelダッシュボードで設定済み
+
 ### Supabase（本番稼働中）
 
 - **Project ID**: `flqthyltwkqusjkmwcee`
@@ -34,21 +45,14 @@ Duolingoを参考にしたUI/UXで、間隔反復学習（SRS）を活用した�
 - **認証**: Google OAuth
 - **RLS**: 全テーブルで有効
 
-### Vercel（設定済み）
-
-- **ビルドコマンド**: `npx expo export -p web`
-- **出力ディレクトリ**: `dist`
-- **リライト**: SPA対応（全ルート → `/index.html`）
-
 ### 環境変数
 
 ```bash
-# .env（ローカル開発）
+# .env（ローカル開発用）
 EXPO_PUBLIC_SUPABASE_URL=https://flqthyltwkqusjkmwcee.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJ...（設定済み）
 
-# Vercel環境変数（要設定）
-# 同じ値をVercelダッシュボードで設定
+# Vercel環境変数 → 設定済み（ダッシュボードで管理）
 ```
 
 ### OAuth設定
