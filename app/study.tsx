@@ -16,8 +16,10 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 
 import { useAuth } from '@/lib/AuthContext';
 import { useStudy } from '@/hooks/useStudy';
-import { WordWithLearningRecord, StudyMode } from '@/types/database';
+import { WordWithLearningRecord, StudyMode, ModeCompletionStatus } from '@/types/database';
 import { SimpleReviewOption, formatInterval, calculateSRS, simpleToQuality } from '@/lib/srs';
+
+type PracticeType = 'srs' | 'practice';
 
 const { width } = Dimensions.get('window');
 
@@ -51,7 +53,7 @@ function normalizeSpelling(text: string): string {
 
 export default function StudyScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ mode?: string }>();
+  const params = useLocalSearchParams<{ mode?: string; practice?: string }>();
   const { user } = useAuth();
   const {
     todayWords,
@@ -61,11 +63,24 @@ export default function StudyScreen() {
     fetchAllWords,
     recordReview,
     saveStudySession,
+    checkModeCompletions,
+    markModeCompleted,
+    fetchPracticeWords,
+    recordPracticeReview,
   } = useStudy();
 
   const [studyMode, setStudyMode] = useState<StudyMode>(
     (params.mode as StudyMode) || 'flashcard'
   );
+  const [practiceType, setPracticeType] = useState<PracticeType>(
+    params.practice === 'true' ? 'practice' : 'srs'
+  );
+  const [practiceWords, setPracticeWords] = useState<WordWithLearningRecord[]>([]);
+  const [modeCompletions, setModeCompletions] = useState<ModeCompletionStatus>({
+    flashcard: false,
+    quiz: false,
+    spelling: false,
+  });
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [studiedCount, setStudiedCount] = useState(0);
@@ -87,19 +102,31 @@ export default function StudyScreen() {
   const flipAnimation = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (user) {
-      fetchTodayWords();
-      fetchAllWords();
-    }
-  }, [user]);
+    const loadData = async () => {
+      if (user) {
+        fetchTodayWords();
+        fetchAllWords();
+        const completions = await checkModeCompletions();
+        setModeCompletions(completions);
+        if (practiceType === 'practice') {
+          const words = await fetchPracticeWords();
+          setPracticeWords(words);
+        }
+      }
+    };
+    loadData();
+  }, [user, practiceType]);
+
+  // 練習モードかSRSモードかで使用する単語リストを選択
+  const baseWords = practiceType === 'practice' ? practiceWords : todayWords;
 
   // 現在出題中の単語
   const currentWord: WordWithLearningRecord | undefined = isRetryPhase
     ? retryQueue[currentIndex]
-    : todayWords[currentIndex];
+    : baseWords[currentIndex];
 
   // 現在のリスト（通常フェーズかリトライフェーズか）
-  const currentList = isRetryPhase ? retryQueue : todayWords;
+  const currentList = isRetryPhase ? retryQueue : baseWords;
 
   const quizOptions = useMemo(() => {
     if (!currentWord || allWords.length < 4) return [];
@@ -147,7 +174,15 @@ export default function StudyScreen() {
     } else {
       // セッション完了
       const duration = Math.round((Date.now() - startTime) / 1000);
-      await saveStudySession(studiedCount + 1, correctCount + (wasCorrect ? 1 : 0), duration);
+      const finalStudiedCount = studiedCount + 1;
+      const finalCorrectCount = correctCount + (wasCorrect ? 1 : 0);
+      await saveStudySession(finalStudiedCount, finalCorrectCount, duration);
+
+      // SRSモードの場合のみモード完了を記録
+      if (practiceType === 'srs') {
+        await markModeCompleted(studyMode, finalStudiedCount);
+      }
+
       setSessionComplete(true);
     }
   };
@@ -155,9 +190,17 @@ export default function StudyScreen() {
   const handleReview = async (option: SimpleReviewOption) => {
     if (!currentWord) return;
 
-    const success = await recordReview(currentWord.id, option, studyMode);
+    const isCorrect = option !== 'forgot';
+
+    // 練習モードではSRSを更新しない
+    let success: boolean;
+    if (practiceType === 'practice') {
+      success = await recordPracticeReview(currentWord.id, isCorrect, studyMode);
+    } else {
+      success = await recordReview(currentWord.id, option, studyMode);
+    }
+
     if (success) {
-      const isCorrect = option !== 'forgot';
       setStudiedCount((prev) => prev + 1);
       if (isCorrect) {
         setCorrectCount((prev) => prev + 1);
@@ -174,7 +217,14 @@ export default function StudyScreen() {
     const reviewOption: SimpleReviewOption = isCorrect ? 'good' : 'forgot';
 
     setTimeout(async () => {
-      const success = await recordReview(currentWord.id, reviewOption, studyMode);
+      // 練習モードではSRSを更新しない
+      let success: boolean;
+      if (practiceType === 'practice') {
+        success = await recordPracticeReview(currentWord.id, isCorrect, studyMode);
+      } else {
+        success = await recordReview(currentWord.id, reviewOption, studyMode);
+      }
+
       if (success) {
         setStudiedCount((prev) => prev + 1);
         if (isCorrect) {
@@ -194,7 +244,14 @@ export default function StudyScreen() {
     setSpellingResult(isCorrect ? 'correct' : 'incorrect');
 
     const reviewOption: SimpleReviewOption = isCorrect ? 'good' : 'forgot';
-    const success = await recordReview(currentWord.id, reviewOption, studyMode);
+
+    // 練習モードではSRSを更新しない
+    let success: boolean;
+    if (practiceType === 'practice') {
+      success = await recordPracticeReview(currentWord.id, isCorrect, studyMode);
+    } else {
+      success = await recordReview(currentWord.id, reviewOption, studyMode);
+    }
 
     if (success) {
       setStudiedCount((prev) => prev + 1);
@@ -248,16 +305,29 @@ export default function StudyScreen() {
     );
   }
 
-  if (todayWords.length === 0) {
+  if (baseWords.length === 0) {
     return (
       <View style={styles.centerContainer}>
         <FontAwesome name="check-circle" size={64} color="#10b981" />
-        <Text style={styles.completeTitle}>復習完了!</Text>
-        <Text style={styles.completeText}>
-          今日復習する単語はありません
+        <Text style={styles.completeTitle}>
+          {practiceType === 'practice' ? '単語がありません' : '復習完了!'}
         </Text>
+        <Text style={styles.completeText}>
+          {practiceType === 'practice'
+            ? '練習できる単語がありません。単語を追加してください。'
+            : '今日復習する単語はありません'}
+        </Text>
+        {practiceType === 'srs' && (
+          <TouchableOpacity
+            style={[styles.homeButton, styles.practiceButton]}
+            onPress={() => setPracticeType('practice')}
+          >
+            <FontAwesome name="refresh" size={16} color="#fff" style={{ marginRight: 8 }} />
+            <Text style={styles.homeButtonText}>練習モードで学習</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
-          style={styles.homeButton}
+          style={[styles.homeButton, practiceType === 'srs' && { backgroundColor: '#6b7280', marginTop: 12 }]}
           onPress={() => router.back()}
         >
           <Text style={styles.homeButtonText}>ホームに戻る</Text>
@@ -329,6 +399,24 @@ export default function StudyScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
+      {/* 練習タイプ切り替え */}
+      <View style={styles.practiceTypeSelector}>
+        <TouchableOpacity
+          style={[styles.practiceTypeButton, practiceType === 'srs' && styles.practiceTypeButtonActive]}
+          onPress={() => setPracticeType('srs')}
+        >
+          <FontAwesome name="calendar" size={14} color={practiceType === 'srs' ? '#fff' : '#6366f1'} />
+          <Text style={[styles.practiceTypeText, practiceType === 'srs' && styles.practiceTypeTextActive]}>今日の学習</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.practiceTypeButton, practiceType === 'practice' && styles.practiceTypeButtonActive]}
+          onPress={() => setPracticeType('practice')}
+        >
+          <FontAwesome name="refresh" size={14} color={practiceType === 'practice' ? '#fff' : '#6366f1'} />
+          <Text style={[styles.practiceTypeText, practiceType === 'practice' && styles.practiceTypeTextActive]}>練習</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* モード切り替え */}
       <View style={styles.modeSelector}>
         <TouchableOpacity
@@ -337,6 +425,9 @@ export default function StudyScreen() {
         >
           <FontAwesome name="clone" size={16} color={studyMode === 'flashcard' ? '#fff' : '#6366f1'} />
           <Text style={[styles.modeButtonText, studyMode === 'flashcard' && styles.modeButtonTextActive]}>カード</Text>
+          {modeCompletions.flashcard && practiceType === 'srs' && (
+            <FontAwesome name="check" size={12} color={studyMode === 'flashcard' ? '#fff' : '#10b981'} style={styles.modeCheckIcon} />
+          )}
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.modeButton, studyMode === 'quiz' && styles.modeButtonActive]}
@@ -345,6 +436,9 @@ export default function StudyScreen() {
         >
           <FontAwesome name="list-ul" size={16} color={studyMode === 'quiz' ? '#fff' : '#6366f1'} />
           <Text style={[styles.modeButtonText, studyMode === 'quiz' && styles.modeButtonTextActive]}>4択</Text>
+          {modeCompletions.quiz && practiceType === 'srs' && (
+            <FontAwesome name="check" size={12} color={studyMode === 'quiz' ? '#fff' : '#10b981'} style={styles.modeCheckIcon} />
+          )}
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.modeButton, studyMode === 'spelling' && styles.modeButtonActive]}
@@ -352,8 +446,21 @@ export default function StudyScreen() {
         >
           <FontAwesome name="keyboard-o" size={16} color={studyMode === 'spelling' ? '#fff' : '#6366f1'} />
           <Text style={[styles.modeButtonText, studyMode === 'spelling' && styles.modeButtonTextActive]}>スペル</Text>
+          {modeCompletions.spelling && practiceType === 'srs' && (
+            <FontAwesome name="check" size={12} color={studyMode === 'spelling' ? '#fff' : '#10b981'} style={styles.modeCheckIcon} />
+          )}
         </TouchableOpacity>
       </View>
+
+      {/* 練習モード表示 */}
+      {practiceType === 'practice' && (
+        <View style={styles.practiceModeBanner}>
+          <FontAwesome name="info-circle" size={14} color="#6366f1" />
+          <Text style={styles.practiceModeBannerText}>
+            練習モード: SRSは更新されません
+          </Text>
+        </View>
+      )}
 
       {/* リトライフェーズ表示 */}
       {isRetryPhase && (
@@ -925,5 +1032,56 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  // 練習タイプセレクタースタイル
+  practiceTypeSelector: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    gap: 8,
+  },
+  practiceTypeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#6366f1',
+    gap: 6,
+  },
+  practiceTypeButtonActive: {
+    backgroundColor: '#6366f1',
+  },
+  practiceTypeText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#6366f1',
+  },
+  practiceTypeTextActive: {
+    color: '#fff',
+  },
+  modeCheckIcon: {
+    marginLeft: 4,
+  },
+  practiceModeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#eef2ff',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  practiceModeBannerText: {
+    fontSize: 13,
+    color: '#4f46e5',
+    fontWeight: '500',
+  },
+  practiceButton: {
+    backgroundColor: '#6366f1',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 });

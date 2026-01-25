@@ -60,6 +60,43 @@ export interface StudySession {
 
 export interface WordWithTags extends Word {
   tags: Tag[];
+  total_mistakes?: number;
+}
+
+// 日次モード完了記録
+export interface DailyModeCompletion {
+  id: string;
+  user_id: string;
+  study_date: string;
+  study_mode: StudyMode;
+  completed_at: string;
+  word_count: number;
+}
+
+// モード完了状況
+export interface ModeCompletionStatus {
+  flashcard: boolean;
+  quiz: boolean;
+  spelling: boolean;
+}
+
+// 間違い履歴アイテム
+export interface MistakeHistoryItem {
+  id: string;
+  word_id: string;
+  word: string;
+  meaning: string;
+  study_mode: StudyMode;
+  created_at: string;
+}
+
+// 単語ごとの間違いサマリー
+export interface WordMistakeSummary {
+  word_id: string;
+  word: string;
+  meaning: string;
+  mistake_count: number;
+  last_mistake_at: string;
 }
 
 export interface WordWithLearningRecord extends Word {

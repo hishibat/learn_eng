@@ -275,3 +275,43 @@ BEGIN
     ALTER TABLE learning_records ADD COLUMN consecutive_correct INTEGER DEFAULT 0;
   END IF;
 END $$;
+
+-- =============================================
+-- Phase 2 学習モード改善: 日次モード完了記録
+-- =============================================
+
+-- 日次モード完了記録テーブル
+CREATE TABLE IF NOT EXISTS daily_mode_completions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  study_date DATE NOT NULL,
+  study_mode TEXT NOT NULL CHECK (study_mode IN ('flashcard', 'quiz', 'spelling')),
+  completed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  word_count INTEGER DEFAULT 0,
+  UNIQUE(user_id, study_date, study_mode)
+);
+
+-- RLSを有効化
+ALTER TABLE daily_mode_completions ENABLE ROW LEVEL SECURITY;
+
+-- daily_mode_completions テーブルのポリシー
+CREATE POLICY "Users can view own daily_mode_completions"
+  ON daily_mode_completions FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own daily_mode_completions"
+  ON daily_mode_completions FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own daily_mode_completions"
+  ON daily_mode_completions FOR UPDATE
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own daily_mode_completions"
+  ON daily_mode_completions FOR DELETE
+  USING (auth.uid() = user_id);
+
+-- インデックス追加
+CREATE INDEX IF NOT EXISTS idx_daily_mode_user_date ON daily_mode_completions(user_id, study_date);
+CREATE INDEX IF NOT EXISTS idx_mistake_records_word_date ON mistake_records(word_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_mistake_records_user_date ON mistake_records(user_id, created_at);

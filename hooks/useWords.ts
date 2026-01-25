@@ -30,6 +30,9 @@ export function useWords() {
               name,
               color
             )
+          ),
+          learning_records (
+            total_mistakes
           )
         `)
         .eq('user_id', user.id)
@@ -37,10 +40,11 @@ export function useWords() {
 
       if (fetchError) throw fetchError;
 
-      // タグデータを整形
+      // タグデータと間違い回数を整形
       const wordsWithTags: WordWithTags[] = (data || []).map((word: any) => ({
         ...word,
         tags: word.word_tags?.map((wt: any) => wt.tags).filter(Boolean) || [],
+        total_mistakes: word.learning_records?.[0]?.total_mistakes ?? 0,
       }));
 
       setWords(wordsWithTags);

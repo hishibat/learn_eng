@@ -12,25 +12,47 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 
 import { useAuth } from '@/lib/AuthContext';
 import { useStudy } from '@/hooks/useStudy';
-import { StudyStats } from '@/types/database';
+import { StudyStats, ModeCompletionStatus, WordWithLearningRecord } from '@/types/database';
 
 export default function HomeScreen() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const { todayWords, loading: studyLoading, fetchTodayWords, getStudyStats } = useStudy();
+  const {
+    todayWords,
+    loading: studyLoading,
+    fetchTodayWords,
+    getStudyStats,
+    checkModeCompletions,
+    fetchMistakeReviewWords,
+  } = useStudy();
   const [stats, setStats] = useState<StudyStats | null>(null);
+  const [modeCompletions, setModeCompletions] = useState<ModeCompletionStatus>({
+    flashcard: false,
+    quiz: false,
+    spelling: false,
+  });
+  const [mistakeReviewData, setMistakeReviewData] = useState<{
+    sevenDayReview: WordWithLearningRecord[];
+    thirtyDayReview: WordWithLearningRecord[];
+  }>({ sevenDayReview: [], thirtyDayReview: [] });
 
   useEffect(() => {
     if (user) {
-      fetchTodayWords();
-      loadStats();
+      loadData();
     }
   }, [user]);
 
-  const loadStats = async () => {
+  const loadData = async () => {
+    fetchTodayWords();
     const studyStats = await getStudyStats();
     setStats(studyStats);
+    const completions = await checkModeCompletions();
+    setModeCompletions(completions);
+    const reviewWords = await fetchMistakeReviewWords();
+    setMistakeReviewData(reviewWords);
   };
+
+  const completedModesCount = Object.values(modeCompletions).filter(Boolean).length;
 
   if (authLoading) {
     return (
@@ -72,7 +94,6 @@ export default function HomeScreen() {
       <TouchableOpacity
         style={styles.studyCard}
         onPress={() => router.push('/study')}
-        disabled={todayWords.length === 0}
       >
         <View style={styles.studyCardContent}>
           <View style={styles.studyCardLeft}>
@@ -86,12 +107,73 @@ export default function HomeScreen() {
               <Text style={styles.studyCardCount}>
                 {todayWords.length > 0
                   ? `${todayWords.length}単語を復習`
-                  : '復習する単語はありません'}
+                  : '復習完了 - 練習モードで学習'}
               </Text>
             )}
           </View>
         </View>
+        {/* モード完了バッジ */}
+        {completedModesCount > 0 && (
+          <View style={styles.completionBadges}>
+            {modeCompletions.flashcard && (
+              <View style={styles.completionBadge}>
+                <FontAwesome name="clone" size={10} color="#fff" />
+              </View>
+            )}
+            {modeCompletions.quiz && (
+              <View style={styles.completionBadge}>
+                <FontAwesome name="list-ul" size={10} color="#fff" />
+              </View>
+            )}
+            {modeCompletions.spelling && (
+              <View style={styles.completionBadge}>
+                <FontAwesome name="keyboard-o" size={10} color="#fff" />
+              </View>
+            )}
+          </View>
+        )}
       </TouchableOpacity>
+
+      {/* 間違い復習セクション */}
+      {(mistakeReviewData.sevenDayReview.length > 0 || mistakeReviewData.thirtyDayReview.length > 0) && (
+        <View style={styles.mistakeReviewSection}>
+          <Text style={styles.sectionTitle}>過去の間違いを復習</Text>
+          {mistakeReviewData.sevenDayReview.length > 0 && (
+            <TouchableOpacity
+              style={styles.mistakeReviewCard}
+              onPress={() => router.push({ pathname: '/study', params: { practice: 'true' } })}
+            >
+              <View style={styles.mistakeReviewIcon}>
+                <FontAwesome name="calendar" size={20} color="#f59e0b" />
+              </View>
+              <View style={styles.mistakeReviewContent}>
+                <Text style={styles.mistakeReviewTitle}>1週間前の間違い</Text>
+                <Text style={styles.mistakeReviewCount}>
+                  {mistakeReviewData.sevenDayReview.length}単語
+                </Text>
+              </View>
+              <FontAwesome name="chevron-right" size={16} color="#9ca3af" />
+            </TouchableOpacity>
+          )}
+          {mistakeReviewData.thirtyDayReview.length > 0 && (
+            <TouchableOpacity
+              style={styles.mistakeReviewCard}
+              onPress={() => router.push({ pathname: '/study', params: { practice: 'true' } })}
+            >
+              <View style={styles.mistakeReviewIcon}>
+                <FontAwesome name="calendar-o" size={20} color="#8b5cf6" />
+              </View>
+              <View style={styles.mistakeReviewContent}>
+                <Text style={styles.mistakeReviewTitle}>1か月前の間違い</Text>
+                <Text style={styles.mistakeReviewCount}>
+                  {mistakeReviewData.thirtyDayReview.length}単語
+                </Text>
+              </View>
+              <FontAwesome name="chevron-right" size={16} color="#9ca3af" />
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
 
       {/* 統計カード */}
       <View style={styles.statsContainer}>
@@ -126,6 +208,14 @@ export default function HomeScreen() {
         >
           <FontAwesome name="camera" size={24} color="#10B981" />
           <Text style={styles.actionButtonText}>画像から取り込み</Text>
+          <FontAwesome name="chevron-right" size={16} color="#9ca3af" />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.actionButton, styles.mistakeButton]}
+          onPress={() => router.push("/mistake-review" as any)}
+        >
+          <FontAwesome name="exclamation-circle" size={24} color="#ef4444" />
+          <Text style={styles.actionButtonText}>間違い振り返り</Text>
           <FontAwesome name="chevron-right" size={16} color="#9ca3af" />
         </TouchableOpacity>
         <TouchableOpacity
@@ -285,10 +375,70 @@ const styles = StyleSheet.create({
     borderLeftWidth: 3,
     borderLeftColor: "#10B981",
   },
+  mistakeButton: {
+    borderLeftWidth: 3,
+    borderLeftColor: "#ef4444",
+  },
   actionButtonText: {
     flex: 1,
     fontSize: 16,
     color: '#1f2937',
     marginLeft: 12,
+  },
+  // モード完了バッジ
+  completionBadges: {
+    flexDirection: 'row',
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    gap: 6,
+  },
+  completionBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // 間違い復習セクション
+  mistakeReviewSection: {
+    marginTop: 20,
+    marginHorizontal: 20,
+  },
+  mistakeReviewCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 12,
+    marginTop: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  mistakeReviewIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#fef3c7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  mistakeReviewContent: {
+    flex: 1,
+  },
+  mistakeReviewTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1f2937',
+  },
+  mistakeReviewCount: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 2,
   },
 });

@@ -58,7 +58,15 @@ export default function WordsScreen() {
       onPress={() => router.push({ pathname: '/edit-word', params: { id: item.id } })}
     >
       <View style={styles.wordContent}>
-        <Text style={styles.wordText}>{item.word}</Text>
+        <View style={styles.wordHeader}>
+          <Text style={styles.wordText}>{item.word}</Text>
+          {(item.total_mistakes ?? 0) > 0 && (
+            <View style={styles.mistakeBadge}>
+              <FontAwesome name="times" size={10} color="#ef4444" />
+              <Text style={styles.mistakeBadgeText}>{item.total_mistakes}</Text>
+            </View>
+          )}
+        </View>
         <Text style={styles.meaningText}>{item.meaning}</Text>
         {item.tags && item.tags.length > 0 && (
           <View style={styles.tagsContainer}>
@@ -217,10 +225,29 @@ const styles = StyleSheet.create({
   wordContent: {
     flex: 1,
   },
+  wordHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   wordText: {
     fontSize: 18,
     fontWeight: '600',
     color: '#1f2937',
+  },
+  mistakeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fef2f2',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    gap: 2,
+  },
+  mistakeBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#ef4444',
   },
   meaningText: {
     fontSize: 14,
